@@ -37,6 +37,8 @@ jobs:
         run: npm run build
         env:
           VITE_BASE: /drug-dealer-sim/
+      - name: Smoke test 3D game in headless Chrome
+        run: npm run smoke
       - name: Configure GitHub Pages when authorized
         id: pages-config
         continue-on-error: true
