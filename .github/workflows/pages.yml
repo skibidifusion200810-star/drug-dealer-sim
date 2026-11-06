@@ -37,7 +37,9 @@ jobs:
         run: npm run build
         env:
           VITE_BASE: /drug-dealer-sim/
-      - name: Configure GitHub Pages
+      - name: Configure GitHub Pages when authorized
+        id: pages-config
+        continue-on-error: true
         uses: actions/configure-pages@v5
         with:
           enablement: true
@@ -46,7 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          MODE=$(gh api repos/$GITHUB_REPOSITORY/pages --jq '.build_type' 2>/dev/null || echo workflow)
+          MODE=$(gh api repos/$GITHUB_REPOSITORY/pages --jq '.build_type' 2>/dev/null || echo legacy)
           echo "type=$MODE" >> "$GITHUB_OUTPUT"
           echo "GitHub Pages publish mode: $MODE"
       - name: Copy static application into repository root for branch-based Pages
@@ -65,11 +67,11 @@ jobs:
             git push origin HEAD:main
           fi
       - name: Upload GitHub Pages artifact
-        if: steps.mode.outputs.type == 'workflow'
+        if: steps.mode.outputs.type == 'workflow' && steps.pages-config.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
       - name: Deploy static game
-        if: steps.mode.outputs.type == 'workflow'
+        if: steps.mode.outputs.type == 'workflow' && steps.pages-config.outcome == 'success'
         id: deployment
         uses: actions/deploy-pages@v4
