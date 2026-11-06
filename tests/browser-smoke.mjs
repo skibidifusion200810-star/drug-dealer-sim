@@ -10,7 +10,8 @@ const child=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview','-
 let serverLog='';
 child.stdout.on('data',c=>{serverLog+=c.toString()});
 child.stderr.on('data',c=>{serverLog+=c.toString()});
-let browser;
+let browser,page;
+const errors=[];
 try{
  let online=false;
  for(let i=0;i<80;i++){
@@ -24,8 +25,7 @@ try{
   args:['--no-sandbox','--disable-dev-shm-usage','--use-gl=angle','--use-angle=swiftshader',
    '--enable-webgl-software-rendering','--ignore-gpu-blocklist']
  });
- const page=await browser.newPage({viewport:{width:1440,height:900},deviceScaleFactor:1});
- const errors=[];
+ page=await browser.newPage({viewport:{width:1440,height:900},deviceScaleFactor:1});
  page.on('pageerror',error=>errors.push(error.stack||error.message));
  const response=await page.goto(url,{waitUntil:'domcontentloaded'});
  assert.equal(response.status(),200,'GitHub Pages HTML must return HTTP 200');
@@ -63,6 +63,8 @@ try{
 }catch(e){
  console.error('3D browser smoke test failed. '+(e.stack||e));
  console.error('Preview output:',serverLog.slice(-1200));
+ console.error('Browser errors:',errors.slice(0,7));
+ if(page){const snapshot=await page.evaluate(()=>({url:location.href,title:document.title,body:document.body.innerText.slice(0,800),root:document.getElementById('root')?.innerHTML.slice(0,1000)})).catch(err=>({error:String(err)}));console.error('Page snapshot:',JSON.stringify(snapshot));}
  process.exitCode=1;
 }finally{
  await browser?.close();
