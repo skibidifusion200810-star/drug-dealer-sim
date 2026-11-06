@@ -1,0 +1,75 @@
+name: Build and publish CARTEL CITY
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'dist/**'
+      - 'assets/**'
+      - 'index.html'
+      - '.nojekyll'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: cartel-city-pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install packages
+        run: npm install --no-audit --no-fund
+      - name: Test economy and gameplay
+        run: npm test
+      - name: Build production city game
+        run: npm run build
+        env:
+          VITE_BASE: /drug-dealer-sim/
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Detect Pages publish mode
+        id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MODE=$(gh api repos/$GITHUB_REPOSITORY/pages --jq '.build_type' 2>/dev/null || echo workflow)
+          echo "type=$MODE" >> "$GITHUB_OUTPUT"
+          echo "GitHub Pages publish mode: $MODE"
+      - name: Copy static application into repository root for branch-based Pages
+        if: steps.mode.outputs.type != 'workflow'
+        run: |
+          cp dist/index.html index.html
+          rm -rf assets
+          cp -R dist/assets assets
+          touch .nojekyll
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f index.html assets .nojekyll
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish playable CARTEL CITY build to main root'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+      - name: Upload GitHub Pages artifact
+        if: steps.mode.outputs.type == 'workflow'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - name: Deploy static game
+        if: steps.mode.outputs.type == 'workflow'
+        id: deployment
+        uses: actions/deploy-pages@v4
