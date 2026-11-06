@@ -62,7 +62,7 @@ export function createCity(container,callbacks={}){
   const key=[color,emissive,opacity].join(':');
   if(materials.has(key))return materials.get(key);
   const options={color,metalness:.09,roughness:.86};
-  if(emissive){options.emissive=emissive;options.emissiveIntensity:.82;}
+  if(emissive){options.emissive=emissive;options.emissiveIntensity=.82;}
   if(opacity!==1){options.transparent=true;options.opacity=opacity;options.depthWrite=false;}
   const mat=new THREE.MeshStandardMaterial(options);
   materials.set(key,mat);return mat;
@@ -521,7 +521,7 @@ export function createCity(container,callbacks={}){
   enter,exit,interact,
   setControl(control,active){if(active)mobile.add(control);else mobile.delete(control);},
   pause(value){paused=!!value;if(paused){mobile.clear();if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();emitFocus(null);}},
-  lock(){if(canMove()&&renderer.domElement.requestPointerLock)renderer.domElement.requestPointerLock().catch?.(()=>{});},
+  lock(){if(canMove()&&renderer.domElement.requestPointerLock){try{const p=renderer.domElement.requestPointerLock();p?.catch?.(()=>{});}catch{}}},
   jump(x,y){
    if(inside)exit();
    camera.position.set(clamp(u(x),2,u(WORLD.width)-2),EYE,clamp(u(y),2,u(WORLD.height)-2));
