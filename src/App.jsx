@@ -3,7 +3,7 @@ import {Activity,ArrowRight,ArrowUpRight,BarChart3,Building2,Check,ChevronDown,C
 import {DISTRICTS,CONTACTS,PRODUCTS,PROPERTIES,BUILDINGS,getRank,xpNext} from './data.js';
 import {initialState,loadState,saveState,perform,advance,price,quote,capacity,usedCapacity,level,money,score,canAccessDistrict} from './engine.js';
 import {createCity} from './city.js';
-const NAV=[['city','Overview',Compass],['market','Underground market',ShoppingBag],['contacts','Street contacts',Users],['crew','Your crew',Users],['territory','Territory control',Crosshair],['properties','Properties',Building2],['missions','Night missions',Truck],['intel','City intelligence',Radio]];
+const NAV=[['city','Explore city',Compass],['market','Underground market',ShoppingBag],['contacts','Street contacts',Users],['crew','Your crew',Users],['territory','Territory control',Crosshair],['properties','Properties',Building2],['missions','Night missions',Truck],['intel','City intelligence',Radio]];
 const getIntro=()=>{try{return localStorage.getItem('cartel-city-intro-v1')==='yes'}catch{return false}};
 const pct=(n,max=100)=>Math.min(100,Math.max(0,100*n/Math.max(1,max)));
 function Bar({value,max=100,tone='lime'}){return <div className={'bar '+tone}><span style={{width:pct(value,max)+'%'}}/></div>}
@@ -18,26 +18,46 @@ export default function App(){
  const [game,setGame]=useState(()=>loadState());const stateRef=useRef(game);const mapElement=useRef(null),cityRef=useRef(null),posRef=useRef(game.player);
  const [page,setPage]=useState('city'),[contactId,setContactId]=useState('marcus'),[product,setProduct]=useState('ember'),[qty,setQty]=useState(1),[offer,setOffer]=useState(65),[buyQty,setBuyQty]=useState(3),[district,setDistrict]=useState('old'),[intro,setIntro]=useState(()=>!getIntro()),[showMenu,setShowMenu]=useState(false),[interior,setInterior]=useState(null),[notice,setNotice]=useState(null),[coords,setCoords]=useState(game.player);
  const notificationTimer=useRef(null);
+ const [focus,setFocus]=useState(null),[mouseLocked,setMouseLocked]=useState(false);
+ const movementRef=useRef(true);
+ movementRef.current=!intro&&!showMenu&&page==='city';
  const notify=useCallback((message,kind='success')=>{clearTimeout(notificationTimer.current);setNotice({message,kind});notificationTimer.current=setTimeout(()=>setNotice(null),4500);},[]);
  const act=useCallback(action=>{try{const r=perform(stateRef.current,action);stateRef.current=r.state;setGame(r.state);saveState(r.state);if(r.message)notify(r.message,r.message.includes('turned down')||r.message.includes('rivals held')?'warning':'success');return r;}catch(e){notify(e.message||'This action is unavailable.','error');return null;}},[notify]);
  const visit=useCallback(info=>{
   if(info.type==='npc'){
    const person=CONTACTS.find(p=>p.id===info.id);if(!person)return;
    setContactId(person.id);setProduct(person.preferred);setQty(1);setOffer(quote(stateRef.current,person,person.preferred));setPage('deal');
-  }else{
+  }else if(info.type==='building'){
    const b=BUILDINGS.find(x=>x.id===info.id);if(!b)return;
-   act({type:'visit',id:b.id});setInterior(b);
+   act({type:'visit',id:b.id});
+   cityRef.current?.enter(b.id);
+   setInterior(b);
+   setPage('city');
+  }else if(info.type==='interior'){
+   const b=BUILDINGS.find(x=>x.id===info.id);if(!b)return;
    setPage(b.kind==='supply'?'market':b.kind==='mission'?'missions':b.kind==='property'||b.kind==='home'?'properties':b.kind==='safehouse'?'city':'contacts');
   }
   setShowMenu(false);
  },[act]);
- useEffect(()=>{if(!mapElement.current)return;const city=createCity(mapElement.current,{getState:()=>stateRef.current,onInteract:visit,onPosition:p=>{posRef.current=p;setCoords(p);}});cityRef.current=city;return()=>{city.destroy();cityRef.current=null;}},[visit]);
+ useEffect(()=>{if(!mapElement.current)return;const city=createCity(mapElement.current,{getState:()=>stateRef.current,onInteract:visit,onPosition:p=>{posRef.current=p;setCoords(p);},onFocus:setFocus,onLock:setMouseLocked,onRoom:setInterior,canMove:()=>movementRef.current});cityRef.current=city;return()=>{city.destroy();cityRef.current=null;}},[visit]);
+ useEffect(()=>{cityRef.current?.pause(!movementRef.current);},[intro,page,showMenu]);
+ useEffect(()=>{
+  const keydown=e=>{
+   const tag=document.activeElement?.tagName;
+   if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+   if(e.key==='Tab'){e.preventDefault();setShowMenu(open=>!open);setPage('city');}
+   if(e.key==='Escape'){setShowMenu(false);setPage('city');}
+   if(e.key.toLowerCase()==='i'){setShowMenu(false);setPage('market');}
+  };
+  window.addEventListener('keydown',keydown);
+  return()=>window.removeEventListener('keydown',keydown);
+ },[]);
  useEffect(()=>{const timer=setInterval(()=>{const next=advance(stateRef.current,1);next.player=posRef.current;stateRef.current=next;setGame(next);saveState(next);},1000);return()=>clearInterval(timer)},[]);
  useEffect(()=>()=>clearTimeout(notificationTimer.current),[]);
  const lv=level(game);const person=CONTACTS.find(x=>x.id===contactId)||CONTACTS[0];const trust=game.contacts[person.id]||{trust:25,lastDeal:-999};const productInfo=PRODUCTS.find(p=>p.id===product)||PRODUCTS[0];
  const districtAt=DISTRICTS.find(d=>coords.x>=d.bounds[0]&&coords.x<d.bounds[2]&&coords.y>=d.bounds[1]&&coords.y<d.bounds[3])||DISTRICTS[0];
  const goTo=(x,y)=>{cityRef.current?.move(x,y);setPage('city');setInterior(null);setShowMenu(false)};
- const openPage=id=>{setPage(id);setInterior(null);setShowMenu(false)};
+ const openPage=id=>{setPage(id);setShowMenu(false)};
  const restart=()=>{if(!window.confirm('Permanently reset the local game save and start a new empire?'))return;const s=initialState();stateRef.current=s;setGame(s);posRef.current=s.player;setCoords(s.player);saveState(s);cityRef.current?.jump(s.player.x,s.player.y);setPage('city');notify('Your empire has been reset.')};
  const finishIntro=()=>{setIntro(false);try{localStorage.setItem('cartel-city-intro-v1','yes')}catch{}};
  const panel=()=>{
@@ -51,13 +71,23 @@ export default function App(){
   if(page==='intel')return <><Head code="07 / LIVE FEED" title="City Intelligence" icon={Radio}/><p className="panel-subtitle">Live simulation: watch events, price multipliers, and rising police activity throughout the fictional city.</p><div className="online-line"><i className="live-dot"/> SIMULATION ACTIVE <b>DAY {game.day}</b></div><Heat heat={game.heat}/><div className="list-heading">MARKET MOVEMENT</div>{PRODUCTS.map(p=><div className="market-row" key={p.id}><span><i style={{background:p.color}}/>{p.name}</span><b>{Math.round((game.market[p.id]||1)*100)}% <TrendingUp size={13}/></b></div>)}<div className="list-heading">LATEST TRANSMISSIONS</div>{game.logs.slice(0,18).map(e=><div className="intel-log" key={e.id}><small>{e.tag} · T+{e.time}s</small><p>{e.message}</p></div>)}<Action kind="subtle" onClick={restart}><RotateCcw size={13}/> RESET LOCAL SAVE</Action></>;
   return <><Head code="00 / COMMAND" title="Your Empire" icon={Crown}/><div className="empire"><div className="eyebrow">YOUR TOTAL EMPIRE VALUE</div><strong>{money(score(game))}</strong><div><span>{getRank(lv)}</span><b>LEVEL {lv}</b></div></div><div className="double-stats overview"><div><Wallet size={15}/><span>AVAILABLE CASH</span><strong>{money(game.cash)}</strong></div><div><Package size={15}/><span>STORAGE</span><strong>{usedCapacity(game)} / {capacity(game)}</strong></div><div><Users size={15}/><span>YOUR CREW</span><strong>{game.workers.length}</strong></div><div><Target size={15}/><span>FINISHED MISSIONS</span><strong>{game.missionsDone}</strong></div></div><div className="list-heading">YOUR NEXT MOVE</div><div className="quick-links"><button onClick={()=>goTo(CONTACTS[0].x,CONTACTS[0].y)}><span><Users size={17}/></span><div><strong>Meet Marcus</strong><small>Start your first street meeting</small></div><ArrowUpRight size={15}/></button><button onClick={()=>openPage('market')}><span><ShoppingBag size={17}/></span><div><strong>Visit the Exchange</strong><small>Explore fictional trading goods</small></div><ArrowUpRight size={15}/></button><button onClick={()=>openPage('missions')}><span><Truck size={17}/></span><div><strong>Accept a Night Run</strong><small>Explore the living city</small></div><ArrowUpRight size={15}/></button></div><Heat heat={game.heat} onHide={()=>act({type:'laylow'})}/></>;
  };
- return <div className="shell"><aside className={'sidebar '+(showMenu?'mobile-open':'')}><div className="brand"><div className="mark"><Skull size={20}/></div><div className="brand-text">CARTEL<span>CITY</span><small>UNDERGROUND SIMULATOR</small></div></div><div className="sidebar-section">YOUR WORLD</div><nav>{NAV.map(([id,title,Icon])=><button key={id} className={'nav '+(page===id||page==='deal'&&id==='contacts'?'active':'')} onClick={()=>openPage(id)}><Icon size={18}/><span>{title}</span>{id==='missions'&&game.mission&&<i className="count">1</i>}</button>)}</nav><div className="sidebar-bottom"><div className="agent"><span>CC</span><div><strong>STREET OPERATOR</strong><small>LEVEL {lv} · {getRank(lv)}</small></div></div><div className="sidebar-copy">CARTEL CITY / v1.0<br/>SINGLE PLAYER EDITION</div></div></aside>
- <main className="main"><header className="topbar"><div className="current"><button className="menu-toggle" onClick={()=>setShowMenu(!showMenu)} aria-label="Open menu"><Menu size={19}/></button><div><small>YOU ARE IN</small><strong style={{color:districtAt.color}}><MapPin size={14}/>{districtAt.short}</strong></div><ChevronRight size={14} className="mute"/><span>CITY OVERVIEW</span></div><div className="top-stats"><div className="top-day"><i className="live-dot"/> DAY {String(game.day).padStart(2,'0')}</div><div className="top-level"><span>LEVEL {lv} · {getRank(lv)}</span><Bar value={game.xp} max={xpNext(lv)}/></div><div className="top-heat"><Flame size={17}/><div><span>POLICE HEAT</span><b>{Math.round(game.heat)}%</b></div></div><div className="wallet"><Wallet size={19}/><div><span>YOUR BALANCE</span><b>{money(game.cash)}</b></div></div></div></header>
- <div className="play-area"><div className="map-canvas" ref={mapElement}/><div className="map-vignette"/><div className="map-brand"><span><i className="live-dot"/> SIMULATION ONLINE</span><h2>VANTA CITY<span>.</span></h2><small>06 DISTRICTS // 14 CONTACTS // YOUR STORY</small></div><div className="map-help"><span><b>WASD</b> MOVE</span><span><b>CLICK</b> WALK</span><span><b>E</b> INTERACT</span><span><b>SPACE</b> SPRINT</span></div><div className="coordinates"><Crosshair size={14}/>{Math.round(coords.x).toString().padStart(4,'0')} : {Math.round(coords.y).toString().padStart(4,'0')}</div>
+ return <div className="shell mode-3d"><aside className={'sidebar '+(showMenu?'mobile-open':'')}><div className="brand"><div className="mark"><Skull size={20}/></div><div className="brand-text">CARTEL<span>CITY</span><small>UNDERGROUND SIMULATOR</small></div></div><div className="sidebar-section">YOUR WORLD</div><nav>{NAV.map(([id,title,Icon])=><button key={id} className={'nav '+(page===id||page==='deal'&&id==='contacts'?'active':'')} onClick={()=>openPage(id)}><Icon size={18}/><span>{title}</span>{id==='missions'&&game.mission&&<i className="count">1</i>}</button>)}</nav><div className="sidebar-bottom"><div className="agent"><span>CC</span><div><strong>STREET OPERATOR</strong><small>LEVEL {lv} · {getRank(lv)}</small></div></div><div className="sidebar-copy">CARTEL CITY / 3D EDITION<br/>FIRST PERSON · SINGLE PLAYER</div></div></aside>
+ <main className="main"><header className="topbar"><div className="current"><button className="menu-toggle" onClick={()=>setShowMenu(!showMenu)} aria-label="Open navigation menu"><Menu size={19}/></button><div><small>YOU ARE IN</small><strong style={{color:districtAt.color}}><MapPin size={14}/>{districtAt.short}</strong></div><ChevronRight size={14} className="mute"/><span>CITY OVERVIEW</span></div><div className="top-stats"><div className="top-day"><i className="live-dot"/> DAY {String(game.day).padStart(2,'0')}</div><div className="top-level"><span>LEVEL {lv} · {getRank(lv)}</span><Bar value={game.xp} max={xpNext(lv)}/></div><div className="top-heat"><Flame size={17}/><div><span>POLICE HEAT</span><b>{Math.round(game.heat)}%</b></div></div><div className="wallet"><Wallet size={19}/><div><span>YOUR BALANCE</span><b>{money(game.cash)}</b></div></div></div></header>
+ <div className="play-area"><div className="map-canvas" ref={mapElement}/><div className="map-vignette"/>
+ <div className="fps-crosshair" aria-hidden="true"><span/><span/><span/><span/></div>
+ {page==='city'&&!intro&&<div className="fps-target">{focus?
+   <button onClick={()=>cityRef.current?.interact()}><span className="keycap">E</span> {focus.label}</button>:
+   !mouseLocked?<button className="fps-click" onClick={()=>cityRef.current?.lock()}><Crosshair size={14}/> CLICK TO LOOK AROUND</button>:
+   <span>LOOK AT A PERSON OR A DOOR · PRESS E TO INTERACT</span>}</div>}
+ <button className="fps-menu-button" onClick={()=>setShowMenu(open=>!open)}><Menu size={17}/> MENU <kbd>TAB</kbd></button>
+ {interior&&<div className="indoor-status"><div><span>INSIDE LOCATION</span><strong>{interior.name}</strong></div><button onClick={()=>{cityRef.current?.exit();setInterior(null);setPage('city');}}>EXIT <ArrowRight size={13}/></button><button onClick={()=>openPage(interior.kind==='supply'?'market':interior.kind==='mission'?'missions':interior.kind==='property'||interior.kind==='home'?'properties':'contacts')}>OPEN TERMINAL</button></div>}
+ <div className="fps-touch-controls"><div className="touch-move">
+  {[[ 'forward','↑'],['left','←'],['backward','↓'],['right','→']].map(([key,label])=><button key={key} className={'touch-'+key} onPointerDown={e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);cityRef.current?.setControl(key,true)}} onPointerUp={()=>cityRef.current?.setControl(key,false)} onPointerCancel={()=>cityRef.current?.setControl(key,false)}>{label}</button>)}
+ </div><button className="touch-use" onClick={()=>cityRef.current?.interact()}>E <small>USE</small></button></div><div className="map-brand"><span><i className="live-dot"/> SIMULATION ONLINE</span><h2>VANTA CITY<span>.</span> <em>3D</em></h2><small>OPEN CITY // FIRST PERSON // YOUR EMPIRE</small></div><div className="map-help"><span><b>WASD</b> MOVE</span><span><b>MOUSE</b> LOOK</span><span><b>E</b> INTERACT</span><span><b>SHIFT</b> SPRINT</span><span><b>TAB</b> MENU</span></div><div className="coordinates"><Crosshair size={14}/>{Math.round(coords.x).toString().padStart(4,'0')} : {Math.round(coords.y).toString().padStart(4,'0')}</div>
  {game.mission&&<button className="mission-float" onClick={()=>openPage('missions')}><Target size={19}/><div><small>ACTIVE OBJECTIVE</small><strong>{BUILDINGS.find(b=>b.id===game.mission.target)?.name}</strong></div><ArrowRight size={15}/></button>}
  {game.heat>=75&&<div className="heat-alert"><Flame size={15}/> HIGH POLICE HEAT — CONSIDER LAYING LOW</div>}
- <aside className="panel"><div className="panel-scroll" key={page}>{panel()}</div></aside>
- {interior&&<div className="interior-wrap" onClick={()=>setInterior(null)}><div className="interior-modal" onClick={e=>e.stopPropagation()}><button className="close" onClick={()=>setInterior(null)}><X size={18}/></button><div className="room"><div className="room-wall"><span>{interior.name}</span></div><div className="room-floor"/><div className="room-sofa"/><div className="room-table"/><div className="room-plant"/></div><div className="interior-text"><span className="eyebrow">LOCATION DISCOVERED</span><h2>{interior.name}</h2><p>{interior.tag}. You have arrived at this location in Vanta City.</p><Action onClick={()=>setInterior(null)}>ENTER LOCATION <ArrowRight size={15}/></Action></div></div></div>}</div>
+ {page!=='city'&&<aside className="panel"><button className="panel-close" title="Back to 3D world" onClick={()=>setPage('city')}><X size={18}/></button><div className="panel-scroll" key={page}>{panel()}</div></aside>}
+</div>
  <footer className="footer"><span><i className="live-dot"/> OFFLINE SINGLE PLAYER · AUTOSAVED IN THIS BROWSER</span><span>FICTIONAL ITEMS · NO REAL MONEY OR DRUGS</span></footer></main>
  {showMenu&&<div className="scrim" onClick={()=>setShowMenu(false)}/>}
  {notice&&<div className={'toast '+notice.kind}><span>{notice.kind==='success'?<Check size={17}/>:<CircleAlert size={17}/>}</span><p>{notice.message}</p><button onClick={()=>setNotice(null)}><X size={15}/></button></div>}
