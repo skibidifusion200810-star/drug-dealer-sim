@@ -5,7 +5,7 @@ import {setTimeout as sleep} from 'node:timers/promises';
 
 const port=4175,url='http://127.0.0.1:'+port+'/drug-dealer-sim/';
 const child=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview','--host','127.0.0.1','--port',String(port),'--strictPort'],{
- env:{...process.env},stdio:['ignore','pipe','pipe']
+ env:{...process.env,VITE_BASE:'/drug-dealer-sim/'},stdio:['ignore','pipe','pipe']
 });
 let serverLog='';
 child.stdout.on('data',c=>{serverLog+=c.toString()});
@@ -20,6 +20,11 @@ try{
   await sleep(250);
  }
  assert(online,'Preview server did not start. '+serverLog);
+ const html=await (await fetch(url)).text();
+ const scriptPath=html.match(/src="([^"]+\.js)"/)?.[1];
+ assert(scriptPath,'Built HTML has no JavaScript entry');
+ const javascript=await fetch(new URL(scriptPath,url));
+ assert(javascript.ok&&String(javascript.headers.get('content-type')).includes('javascript'),'Vite preview did not serve the JavaScript asset at '+scriptPath+' (HTTP '+javascript.status+')');
  browser=await chromium.launch({
   channel:'chrome',headless:true,
   args:['--no-sandbox','--disable-dev-shm-usage','--use-gl=angle','--use-angle=swiftshader',
@@ -27,6 +32,8 @@ try{
  });
  page=await browser.newPage({viewport:{width:1440,height:900},deviceScaleFactor:1});
  page.on('pageerror',error=>errors.push(error.stack||error.message));
+ page.on('console',msg=>{if(msg.type()==='error')errors.push('CONSOLE: '+msg.text())});
+ page.on('requestfailed',req=>errors.push('NETWORK: '+req.url()+' '+req.failure()?.errorText));
  const response=await page.goto(url,{waitUntil:'domcontentloaded'});
  assert.equal(response.status(),200,'GitHub Pages HTML must return HTTP 200');
  await page.waitForSelector('.city-webgl',{timeout:20000});
